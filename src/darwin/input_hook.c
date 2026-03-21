@@ -1176,7 +1176,7 @@ static int create_event_runloop_info(event_runloop_info **hook) {
     (*hook)->port = CGEventTapCreate(
             kCGSessionEventTap,       // kCGHIDEventTap
             kCGHeadInsertEventTap,    // kCGTailAppendEventTap
-            kCGEventTapOptionDefault, // kCGEventTapOptionListenOnly See https://github.com/kwhat/jnativehook/issues/22
+            kCGEventTapOptionListenOnly, // Changed from kCGEventTapOptionDefault: passive tap avoids blocking input delivery. See https://github.com/kwhat/jnativehook/issues/22
             event_mask,
             hook_event_proc,
             NULL);
