@@ -483,6 +483,7 @@ void on_library_unload() {
     // Cleanup.
     unload_input_helper();
 
+#ifdef USE_XT
     if (xt_disp != NULL) {
         XtCloseDisplay(xt_disp);
         xt_disp = NULL;
@@ -491,6 +492,7 @@ void on_library_unload() {
         XtDestroyApplicationContext(xt_context);
         xt_context = NULL;
     }
+#endif
 
     // Destroy the native displays.
     if (helper_disp != NULL) {
