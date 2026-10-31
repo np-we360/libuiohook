@@ -1646,10 +1646,16 @@ struct xkb_state * create_xkb_state(struct xkb_context *context, xcb_connection_
     struct xkb_keymap *keymap = NULL;
     struct xkb_state *state = NULL;
 
+    if (context == NULL || connection == NULL) {
+        return NULL;
+    }
+
     int32_t device_id = xkb_x11_get_core_keyboard_device_id(connection);
     if (device_id >= 0) {
         keymap = xkb_x11_keymap_new_from_device(context, connection, device_id, XKB_KEYMAP_COMPILE_NO_FLAGS);
-        state = xkb_x11_state_new_from_device(keymap, connection, device_id);
+        if (keymap != NULL) {
+            state = xkb_x11_state_new_from_device(keymap, connection, device_id);
+        }
     }
     #ifdef USE_XKB_FILE
     else {
@@ -1658,12 +1664,14 @@ struct xkb_state * create_xkb_state(struct xkb_context *context, xcb_connection_
                 __FUNCTION__, __LINE__, device_id);
 
         keymap = xkb_keymap_new_from_names(context, &xkb_names, XKB_KEYMAP_COMPILE_NO_FLAGS);
-        state = xkb_state_new(keymap);
+        if (keymap != NULL) {
+            state = xkb_state_new(keymap);
+        }
     }
     #endif
 
-    xkb_map_unref(keymap);
-    return xkb_state_ref(state);
+    xkb_keymap_unref(keymap);
+    return state;
 }
 
 void destroy_xkb_state(struct xkb_state* state) {
@@ -1801,27 +1809,28 @@ void load_input_helper() {
      * published by the Free Software Foundation.
      */
     XkbDescPtr desc = XkbGetKeyboard(helper_disp, XkbGBN_AllComponentsMask, XkbUseCoreKbd);
-    if (desc != NULL && desc->names != NULL) {
-        const char *layout_name = XGetAtomName(helper_disp, desc->names->keycodes);
-        logger(LOG_LEVEL_DEBUG, "%s [%u]: Found keycode atom '%s' (%i)!\n",
-                __FUNCTION__, __LINE__, layout_name, (unsigned int) desc->names->keycodes);
-
-        const char *prefix_xfree86 = "xfree86_";
-        #ifdef USE_EVDEV
-        const char *prefix_evdev = "evdev_";
-        if (strncmp(layout_name, prefix_evdev, strlen(prefix_evdev)) == 0) {
-            is_evdev = true;
-        } else
-        #endif
-        if (strncmp(layout_name, prefix_xfree86, strlen(prefix_xfree86)) != 0) {
-            logger(LOG_LEVEL_ERROR, "%s [%u]: Unknown keycode name '%s', please file a bug report!\n",
-                    __FUNCTION__, __LINE__, layout_name);
-        } else if (layout_name == NULL) {
-            logger(LOG_LEVEL_ERROR, "%s [%u]: X atom name failure for desc->names->keycodes!\n",
-                    __FUNCTION__, __LINE__);
+    if (desc != NULL) {
+        if (desc->names != NULL) {
+            char *layout_name = XGetAtomName(helper_disp, desc->names->keycodes);
+            if (layout_name != NULL) {
+                const char *prefix_xfree86 = "xfree86_";
+                #ifdef USE_EVDEV
+                const char *prefix_evdev = "evdev_";
+                if (strncmp(layout_name, prefix_evdev, strlen(prefix_evdev)) == 0) {
+                    is_evdev = true;
+                } else
+                #endif
+                if (strncmp(layout_name, prefix_xfree86, strlen(prefix_xfree86)) != 0) {
+                    logger(LOG_LEVEL_ERROR, "%s [%u]: Unknown keycode name '%s', please file a bug report!\n",
+                            __FUNCTION__, __LINE__, layout_name);
+                }
+                XFree(layout_name);
+            } else {
+                logger(LOG_LEVEL_ERROR, "%s [%u]: X atom name failure for desc->names->keycodes!\n",
+                        __FUNCTION__, __LINE__);
+            }
         }
-
-        XkbFreeClientMap(desc, XkbGBN_AllComponentsMask, True);
+        XkbFreeKeyboard(desc, XkbGBN_AllComponentsMask, True);
     } else {
         logger(LOG_LEVEL_ERROR, "%s [%u]: XkbGetKeyboard failed to locate a valid keyboard!\n",
                 __FUNCTION__, __LINE__);
@@ -1833,11 +1842,12 @@ void load_input_helper() {
 
 void unload_input_helper() {
     if (keyboard_map != NULL) {
-        XkbFreeClientMap(keyboard_map, XkbAllClientInfoMask, true);
-        #ifdef USE_EVDEV
-        is_evdev = false;
-        #endif
+        XkbFreeKeyboard(keyboard_map, XkbAllClientInfoMask, True);
+        keyboard_map = NULL;
     }
+    #ifdef USE_EVDEV
+    is_evdev = false;
+    #endif
 
     if (mouse_button_map != NULL) {
         free(mouse_button_map);

@@ -466,9 +466,11 @@ void on_library_load() {
     XtToolkitInitialize();
     xt_context = XtCreateApplicationContext();
 
-    int argc = 0;
-    char ** argv = { NULL };
-    xt_disp = XtOpenDisplay(xt_context, NULL, "UIOHook", "libuiohook", NULL, 0, &argc, argv);
+    if (helper_disp != NULL) {
+        int argc = 0;
+        char ** argv = { NULL };
+        xt_disp = XtOpenDisplay(xt_context, NULL, "UIOHook", "libuiohook", NULL, 0, &argc, argv);
+    }
     #endif
 }
 
@@ -481,10 +483,14 @@ void on_library_unload() {
     // Cleanup.
     unload_input_helper();
 
-    #ifdef USE_XT
-    XtCloseDisplay(xt_disp);
-    XtDestroyApplicationContext(xt_context);
-    #endif
+    if (xt_disp != NULL) {
+        XtCloseDisplay(xt_disp);
+        xt_disp = NULL;
+    }
+    if (xt_context != NULL) {
+        XtDestroyApplicationContext(xt_context);
+        xt_context = NULL;
+    }
 
     // Destroy the native displays.
     if (helper_disp != NULL) {

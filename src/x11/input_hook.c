@@ -978,39 +978,40 @@ static int xrecord_start() {
         }
 
         #if defined(USE_XKB_COMMON)
-        // Open XCB Connection
         hook->input.connection = XGetXCBConnection(hook->ctrl.display);
-        int xcb_status = xcb_connection_has_error(hook->input.connection);
+        int xcb_status = hook->input.connection == NULL ? -1 : xcb_connection_has_error(hook->input.connection);
         if (xcb_status <= 0) {
-            // Initialize xkbcommon context.
-            struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-
-            if (context != NULL) {
-                hook->input.context = xkb_context_ref(context);
+            hook->input.context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+            if (hook->input.context != NULL) {
+                state = create_xkb_state(hook->input.context, hook->input.connection);
+                if (state != NULL) {
+                    initialize_modifiers();
+                    status = xrecord_query();
+                } else {
+                    logger(LOG_LEVEL_ERROR, "%s [%u]: create_xkb_state failure!\n",
+                            __FUNCTION__, __LINE__);
+                    status = UIOHOOK_FAILURE;
+                }
             } else {
                 logger(LOG_LEVEL_ERROR, "%s [%u]: xkb_context_new failure!\n",
                         __FUNCTION__, __LINE__);
+                status = UIOHOOK_FAILURE;
             }
         } else {
             logger(LOG_LEVEL_ERROR, "%s [%u]: xcb_connect failure! (%d)\n",
                     __FUNCTION__, __LINE__, xcb_status);
+            status = UIOHOOK_FAILURE;
         }
-        #endif
-
-        #ifdef USE_XKB_COMMON
-        state = create_xkb_state(hook->input.context, hook->input.connection);
-        #endif
-
-        // Initialize starting modifiers.
+        #else
         initialize_modifiers();
-
         status = xrecord_query();
+        #endif
 
         #ifdef USE_XKB_COMMON
         if (state != NULL) {
             destroy_xkb_state(state);
+            state = NULL;
         }
-
         if (hook->input.context != NULL) {
             xkb_context_unref(hook->input.context);
             hook->input.context = NULL;
@@ -1039,30 +1040,20 @@ static int xrecord_start() {
 }
 
 UIOHOOK_API int hook_run() {
-    // Hook data for future cleanup.
-    hook = malloc(sizeof(hook_info));
+    hook = calloc(1, sizeof(hook_info));
     if (hook == NULL) {
         logger(LOG_LEVEL_ERROR, "%s [%u]: Failed to allocate memory for hook structure!\n",
               __FUNCTION__, __LINE__);
-
         return UIOHOOK_ERROR_OUT_OF_MEMORY;
     }
 
-    hook->input.mask = 0x0000;
-    hook->input.mouse.is_dragged = false;
-    hook->input.mouse.click.count = 0;
-    hook->input.mouse.click.time = 0;
     hook->input.mouse.click.button = MOUSE_NOBUTTON;
-
     int status = xrecord_start();
-
-    // Free data associated with this hook.
     free(hook);
     hook = NULL;
 
     logger(LOG_LEVEL_DEBUG, "%s [%u]: Something, something, something, complete.\n",
             __FUNCTION__, __LINE__);
-
     return status;
 }
 
@@ -1070,44 +1061,34 @@ UIOHOOK_API int hook_stop() {
     int status = UIOHOOK_FAILURE;
 
     if (hook != NULL && hook->ctrl.display != NULL && hook->ctrl.context != 0) {
-        // We need to make sure the context is still valid.
-        XRecordState *state = malloc(sizeof(XRecordState));
-        if (state != NULL) {
-            if (XRecordGetContext(hook->ctrl.display, hook->ctrl.context, &state) != 0) {
-                // Try to exit the thread naturally.
-                if (state->enabled && XRecordDisableContext(hook->ctrl.display, hook->ctrl.context) != 0) {
-                    #ifdef USE_XRECORD_ASYNC
-                    pthread_mutex_lock(&hook_xrecord_mutex);
-                    running = false;
-                    pthread_cond_signal(&hook_xrecord_cond);
-                    pthread_mutex_unlock(&hook_xrecord_mutex);
-                    #endif
+        XRecordState *state = NULL;
+        if (XRecordGetContext(hook->ctrl.display, hook->ctrl.context, &state) != 0 && state != NULL) {
+            if (state->enabled && XRecordDisableContext(hook->ctrl.display, hook->ctrl.context) != 0) {
+                #ifdef USE_XRECORD_ASYNC
+                pthread_mutex_lock(&hook_xrecord_mutex);
+                running = false;
+                pthread_cond_signal(&hook_xrecord_cond);
+                pthread_mutex_unlock(&hook_xrecord_mutex);
+                #endif
 
-                    // See Bug 42356 for more information.
-                    // https://bugs.freedesktop.org/show_bug.cgi?id=42356#c4
-                    //XFlush(hook->ctrl.display);
-                    XSync(hook->ctrl.display, False);
-
-                    status = UIOHOOK_SUCCESS;
-                }
-            } else {
-                logger(LOG_LEVEL_ERROR, "%s [%u]: XRecordGetContext failure!\n",
-                        __FUNCTION__, __LINE__);
-
-                status = UIOHOOK_ERROR_X_RECORD_GET_CONTEXT;
+                // See Bug 42356 for more information.
+                // https://bugs.freedesktop.org/show_bug.cgi?id=42356#c4
+                //XFlush(hook->ctrl.display);
+                XSync(hook->ctrl.display, False);
+                status = UIOHOOK_SUCCESS;
             }
-
-            free(state);
         } else {
-            logger(LOG_LEVEL_ERROR, "%s [%u]: Failed to allocate memory for XRecordState!\n",
+            logger(LOG_LEVEL_ERROR, "%s [%u]: XRecordGetContext failure!\n",
                     __FUNCTION__, __LINE__);
+            status = UIOHOOK_ERROR_X_RECORD_GET_CONTEXT;
+        }
 
-            status = UIOHOOK_ERROR_OUT_OF_MEMORY;
+        if (state != NULL) {
+            XRecordFreeState(state);
         }
     }
 
     logger(LOG_LEVEL_DEBUG, "%s [%u]: Status: %#X.\n",
             __FUNCTION__, __LINE__, status);
-
     return status;
 }
